@@ -1,0 +1,2145 @@
+# encoding: UTF-8
+from sqlalchemy.exc import OperationalError
+from flask import Blueprint, request
+import traceback
+
+from common.apiResponse import ApiResponse
+from logger import logger
+from .utils.authMiddleware import login_required, permission_required, should_skip_auth
+from .controller.updateSqlProjectController import UpdateSqlProjectController
+from .controller.projectController import ProjectController
+from .controller.caseController import CaseController
+from .controller.planController import PlanController
+from .controller.reportController import ReportController
+from .controller.dataBuilderController import DataBuilderController
+from .controller.productController import ProductController
+from .controller.rbacController import RbacController
+from .controller.userController import UserController
+from .controller.bugController import BugController, BugUploadController
+from .controller.projectHookController import ProjectHookController
+from .controller.automationController import AutomationController
+from .controller.skillController import SkillController
+from .controller.documentSourceController import DocumentSourceController
+from .controller.mockController import MockController
+
+api = Blueprint('api', __name__)
+
+
+@api.before_request
+def api_before_request():
+    if request.method == 'OPTIONS' or should_skip_auth(request.path):
+        return None
+    token = request.headers.get('accessToken') or request.headers.get('accesstoken') or request.headers.get('Authorization')
+    if not token:
+        return ApiResponse.build_failure(40001, msg='缺少token！')
+    return None
+
+
+@api.route('/list', methods=['GET'])
+@login_required
+@permission_required('sql_project:list')
+def get_list():
+    request_args = request.args
+    controller = UpdateSqlProjectController(request_args)
+    try:
+        ret = controller.query_smart_manage_sql_data()
+        return ApiResponse.build_success(20000, data=ret)
+    except OperationalError:
+        return ApiResponse.build_failure(40008, msg='数据库连接超时，请稍后重试！')
+    except Exception as e:
+        from logger import logger
+        logger.exception(f'get_list failed, args={dict(request_args)}, err={e}')
+        return ApiResponse.build_failure(40008, msg=str(e))
+
+
+@api.route('/create', methods=['POST'])
+@login_required
+@permission_required('sql_project:create')
+def create_sql_project():
+    req_json = request.get_json() or {}
+    controller = UpdateSqlProjectController(req_json)
+    create_id, err_msg = controller.create_sql_project()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'sqlId': create_id})
+
+
+@api.route('/detail', methods=['GET'])
+@login_required
+@permission_required('sql_project:detail')
+def get_sql_project_detail():
+    request_args = request.args
+    controller = UpdateSqlProjectController(request_args)
+    ret, err_msg = controller.get_sql_project_detail()
+    if err_msg:
+        return ApiResponse.build_failure(40011, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/delete', methods=['POST'])
+@login_required
+@permission_required('sql_project:delete')
+def delete_sql_project():
+    req_json = request.get_json() or {}
+    controller = UpdateSqlProjectController(req_json)
+    delete_id, err_msg = controller.delete_sql_project()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'sqlId': delete_id})
+
+
+@api.route('/execute', methods=['POST'])
+@login_required
+@permission_required('sql_project:execute')
+def execute_sql_project():
+    """按 SQL 配置中的项目和环境执行目标 SQL。"""
+    req_json = request.get_json() or {}
+    controller = UpdateSqlProjectController(req_json)
+    ret, err_msg = controller.execute_sql_project()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/project/list', methods=['GET'])
+@login_required
+@permission_required('project:list')
+def project_list():
+    controller = ProjectController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.project_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/detail', methods=['GET'])
+@login_required
+@permission_required('project:detail')
+def project_detail():
+    controller = ProjectController(request.args)
+    try:
+        ret, err_msg = controller.project_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/create', methods=['POST'])
+@login_required
+@permission_required('project:create')
+def project_create():
+    controller = ProjectController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.project_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/update', methods=['POST'])
+@login_required
+@permission_required('project:update')
+def project_update():
+    controller = ProjectController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.project_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/delete', methods=['POST'])
+@login_required
+@permission_required('project:delete')
+def project_delete():
+    controller = ProjectController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.project_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/environment/list', methods=['GET'])
+@login_required
+@permission_required('environment:list')
+def environment_list():
+    """分页查询环境配置列表。"""
+    controller = ProjectController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.environment_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/environment/create', methods=['POST'])
+@login_required
+@permission_required('environment:create')
+def environment_create():
+    controller = ProjectController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.environment_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/environment/update', methods=['POST'])
+@login_required
+@permission_required('environment:update')
+def environment_update():
+    controller = ProjectController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.environment_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/environment/delete', methods=['POST'])
+@login_required
+@permission_required('environment:delete')
+def environment_delete():
+    controller = ProjectController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.environment_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/member/list', methods=['GET'])
+@login_required
+@permission_required('project_member:list')
+def project_member_list():
+    controller = ProjectController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.member_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/member/create', methods=['POST'])
+@login_required
+@permission_required('project_member:create')
+def project_member_create():
+    """批量添加项目成员。"""
+    controller = ProjectController(request.get_json() or {})
+    try:
+        result, err_msg = controller.member_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': result})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/hook/list', methods=['GET'])
+@login_required
+@permission_required('project_hook:list')
+def project_hook_list():
+    controller = ProjectHookController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.hook_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/hook/detail', methods=['GET'])
+@login_required
+@permission_required('project_hook:detail')
+def project_hook_detail():
+    controller = ProjectHookController(request.args)
+    try:
+        ret, err_msg = controller.hook_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40016, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/hook/create', methods=['POST'])
+@login_required
+@permission_required('project_hook:create')
+def project_hook_create():
+    controller = ProjectHookController(request.get_json() or {})
+    try:
+        hook_id, err_msg = controller.hook_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': hook_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/hook/update', methods=['POST'])
+@login_required
+@permission_required('project_hook:update')
+def project_hook_update():
+    controller = ProjectHookController(request.get_json() or {})
+    try:
+        hook_id, err_msg = controller.hook_update()
+        if err_msg:
+            return ApiResponse.build_failure(40010, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': hook_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/hook/delete', methods=['POST'])
+@login_required
+@permission_required('project_hook:delete')
+def project_hook_delete():
+    controller = ProjectHookController(request.get_json() or {})
+    try:
+        hook_id, err_msg = controller.hook_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': hook_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/hook/send', methods=['POST'])
+@login_required
+@permission_required('project_hook:send')
+def project_hook_send():
+    controller = ProjectHookController(request.get_json() or {})
+    try:
+        success, result = controller.hook_send()
+        if not success:
+            if isinstance(result, str):
+                return ApiResponse.build_failure(40012, msg=result)
+            elif isinstance(result, list) and result:
+                errors = [r.get('error') for r in result if not r.get('success') and r.get('error')]
+                error_msg = errors[0] if errors else '发送失败'
+                return ApiResponse.build_failure(40012, msg=error_msg, data=result)
+            else:
+                return ApiResponse.build_failure(40012, msg='发送失败', data=result)
+        return ApiResponse.build_success(20000, data=result)
+    finally:
+        controller.close_session()
+
+
+@api.route('/product/list', methods=['GET'])
+@login_required
+@permission_required('product:list')
+def product_list():
+    controller = ProductController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.product_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/product/detail', methods=['GET'])
+@login_required
+@permission_required('product:detail')
+def product_detail():
+    controller = ProductController(request.args)
+    try:
+        ret, err_msg = controller.product_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/product/create', methods=['POST'])
+@login_required
+@permission_required('product:create')
+def product_create():
+    controller = ProductController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.product_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/product/update', methods=['POST'])
+@login_required
+@permission_required('product:update')
+def product_update():
+    controller = ProductController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.product_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/product/delete', methods=['POST'])
+@login_required
+@permission_required('product:delete')
+def product_delete():
+    controller = ProductController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.product_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/module/tree', methods=['GET'])
+@login_required
+@permission_required('module:list')
+def module_tree():
+    try:
+        return ApiResponse.build_success(20000, data=CaseController(request.args).module_list())
+    except Exception as e:
+        logger.error(f'module_tree异常：{str(e)}, 请求参数：{dict(request.args)}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40009, msg=f'查询失败：{str(e)[:100]}')
+
+
+@api.route('/module/create', methods=['POST'])
+@login_required
+@permission_required('module:create')
+def module_create():
+    try:
+        create_id, err_msg = CaseController(request.get_json() or {}).module_create()
+        if err_msg:
+            logger.warning(f'module_create失败：{err_msg}, 请求参数：{request.get_json()}')
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    except Exception as e:
+        logger.error(f'module_create异常：{str(e)}, 请求参数：{request.get_json()}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40009, msg=f'创建失败：{str(e)[:100]}')
+
+
+@api.route('/module/update', methods=['POST'])
+@login_required
+@permission_required('module:update')
+def module_update():
+    try:
+        update_id, err_msg = CaseController(request.get_json() or {}).module_update()
+        if err_msg:
+            logger.warning(f'module_update失败：{err_msg}, 请求参数：{request.get_json()}')
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    except Exception as e:
+        logger.error(f'module_update异常：{str(e)}, 请求参数：{request.get_json()}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40012, msg=f'更新失败：{str(e)[:100]}')
+
+
+@api.route('/module/delete', methods=['POST'])
+@login_required
+@permission_required('module:delete')
+def module_delete():
+    try:
+        delete_id, err_msg = CaseController(request.get_json() or {}).module_delete()
+        if err_msg:
+            logger.warning(f'module_delete失败：{err_msg}, 请求参数：{request.get_json()}')
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    except Exception as e:
+        logger.error(f'module_delete异常：{str(e)}, 请求参数：{request.get_json()}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40012, msg=f'删除失败：{str(e)[:100]}')
+
+
+@api.route('/case/list', methods=['GET'])
+@login_required
+@permission_required('case:list')
+def case_list():
+    try:
+        controller = CaseController(request.args)
+        return ApiResponse.build_success(20000, data=controller.case_list())
+    except Exception as e:
+        logger.error(f'case_list异常：{str(e)}, 请求参数：{dict(request.args)}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40009, msg=f'查询失败：{str(e)[:100]}')
+
+
+@api.route('/case/detail', methods=['GET'])
+@login_required
+@permission_required('case:detail')
+def case_detail():
+    ret, err_msg = CaseController(request.args).case_detail()
+    if err_msg:
+        logger.warning(f'case_detail失败：{err_msg}, 请求参数：{dict(request.args)}')
+        return ApiResponse.build_failure(40011, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/case/create', methods=['POST'])
+@login_required
+@permission_required('case:create')
+def case_create():
+    try:
+        create_id, err_msg = CaseController(request.get_json() or {}).case_create()
+        if err_msg:
+            logger.warning(f'case_create失败：{err_msg}, 请求参数：{request.get_json()}')
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    except Exception as e:
+        logger.error(f'case_create异常：{str(e)}, 请求参数：{request.get_json()}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40009, msg=f'创建失败：{str(e)[:100]}')
+
+
+@api.route('/case/update', methods=['POST'])
+@login_required
+@permission_required('case:update')
+def case_update():
+    try:
+        update_id, err_msg = CaseController(request.get_json() or {}).case_update()
+        if err_msg:
+            logger.warning(f'case_update失败：{err_msg}, 请求参数：{request.get_json()}')
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    except Exception as e:
+        logger.error(f'case_update异常：{str(e)}, 请求参数：{request.get_json()}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40012, msg=f'更新失败：{str(e)[:100]}')
+
+
+@api.route('/case/delete', methods=['POST'])
+@login_required
+@permission_required('case:delete')
+def case_delete():
+    try:
+        ret, err_msg = CaseController(request.get_json() or {}).case_delete()
+        if err_msg:
+            logger.warning(f'case_delete失败：{err_msg}, 请求参数：{request.get_json()}')
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    except Exception as e:
+        logger.error(f'case_delete异常：{str(e)}, 请求参数：{request.get_json()}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40012, msg=f'删除失败：{str(e)[:100]}')
+
+
+@api.route('/case/restore', methods=['POST'])
+@login_required
+@permission_required('case:update')
+def case_restore():
+    try:
+        ret, err_msg = CaseController(request.get_json() or {}).case_restore()
+        if err_msg:
+            logger.warning(f'case_restore失败：{err_msg}, 请求参数：{request.get_json()}')
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    except Exception as e:
+        logger.error(f'case_restore异常：{str(e)}, 请求参数：{request.get_json()}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40012, msg=f'恢复失败：{str(e)[:100]}')
+
+
+@api.route('/case/import', methods=['POST'])
+@login_required
+@permission_required('case:create')
+def case_import():
+    import os
+    from flask import send_file
+    
+    try:
+        if 'file' not in request.files:
+            logger.warning('case_import失败：请上传文件')
+            return ApiResponse.build_failure(40009, msg='请上传文件')
+        
+        file = request.files['file']
+        if file.filename == '':
+            logger.warning('case_import失败：请选择文件')
+            return ApiResponse.build_failure(40009, msg='请选择文件')
+        
+        project_id = request.form.get('projectId')
+        if not project_id:
+            logger.warning('case_import失败：projectId 为必传参数')
+            return ApiResponse.build_failure(40009, msg='projectId 为必传参数')
+        
+        # 获取项目根目录
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        attachment_dir = os.path.join(root_dir, 'attachment')
+        # 确保 attachment 目录存在
+        os.makedirs(attachment_dir, exist_ok=True)
+        temp_path = os.path.join(attachment_dir, 'temp_import.xlsx')
+        file.save(temp_path)
+        
+        controller = CaseController({})
+        try:
+            success_count, err_msg = controller.case_import(temp_path, project_id)
+            if err_msg and ('失败' in err_msg or success_count == 0):
+                logger.warning(f'case_import失败：{err_msg}, projectId={project_id}')
+                return ApiResponse.build_failure(40009, msg=err_msg)
+            logger.info(f'case_import成功：成功{success_count}条, projectId={project_id}')
+            return ApiResponse.build_success(20000, data={'successCount': success_count, 'message': err_msg})
+        finally:
+            controller.close_session()
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception as e:
+        logger.error(f'case_import异常：{str(e)}, projectId={request.form.get("projectId")}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40009, msg=f'导入失败：{str(e)[:100]}')
+
+
+@api.route('/import/template', methods=['GET'])
+@login_required
+def import_template():
+    import os
+    from flask import send_file
+    
+    template_path = CaseController.get_template_path()
+    if not os.path.exists(template_path):
+        return ApiResponse.build_failure(40011, msg='模板文件不存在')
+    
+    return send_file(template_path, as_attachment=True, attachment_filename='测试用例模版.xlsx')
+
+
+@api.route('/case/snapshot/create', methods=['POST'])
+@login_required
+@permission_required('case_snapshot:create')
+def case_snapshot_create():
+    create_id, err_msg = CaseController(request.get_json() or {}).snapshot_create()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': create_id})
+
+
+@api.route('/case/snapshot/list', methods=['GET'])
+@login_required
+@permission_required('case_snapshot:list')
+def case_snapshot_list():
+    return ApiResponse.build_success(20000, data=CaseController(request.args).snapshot_list())
+
+
+@api.route('/case/review/create', methods=['POST'])
+@login_required
+@permission_required('case_review:create')
+def case_review_create():
+    create_id, err_msg = CaseController(request.get_json() or {}).review_create()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': create_id})
+
+
+@api.route('/case/review/update', methods=['POST'])
+@login_required
+@permission_required('case_review:update')
+def case_review_update():
+    update_id, err_msg = CaseController(request.get_json() or {}).review_update()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': update_id})
+
+
+@api.route('/case/review/list', methods=['GET'])
+@login_required
+@permission_required('case_review:list')
+def case_review_list():
+    return ApiResponse.build_success(20000, data=CaseController(request.args).review_list())
+
+
+@api.route('/plan/list', methods=['GET'])
+@login_required
+@permission_required('plan:list')
+def plan_list():
+    return ApiResponse.build_success(20000, data=PlanController(request.args).plan_list())
+
+
+@api.route('/plan/detail', methods=['GET'])
+@login_required
+@permission_required('plan:detail')
+def plan_detail():
+    ret, err_msg = PlanController(request.args).plan_detail()
+    if err_msg:
+        return ApiResponse.build_failure(40011, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/plan/create', methods=['POST'])
+@login_required
+@permission_required('plan:create')
+def plan_create():
+    create_id, err_msg = PlanController(request.get_json() or {}).plan_create()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': create_id})
+
+
+@api.route('/plan/update', methods=['POST'])
+@login_required
+@permission_required('plan:update')
+def plan_update():
+    update_id, err_msg = PlanController(request.get_json() or {}).plan_update()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': update_id})
+
+
+@api.route('/plan/delete', methods=['POST'])
+@login_required
+@permission_required('plan:delete')
+def plan_delete():
+    delete_id, err_msg = PlanController(request.get_json() or {}).plan_delete()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': delete_id})
+
+
+@api.route('/plan/round/create', methods=['POST'])
+@login_required
+@permission_required('plan_round:create')
+def plan_round_create():
+    create_id, err_msg = PlanController(request.get_json() or {}).round_create()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': create_id})
+
+
+@api.route('/plan/round/list', methods=['GET'])
+@login_required
+@permission_required('plan_round:list')
+def plan_round_list():
+    return ApiResponse.build_success(20000, data=PlanController(request.args).round_list())
+
+
+@api.route('/plan/case/add', methods=['POST'])
+@login_required
+@permission_required('plan_case:add')
+def plan_case_add():
+    added_count, err_msg = PlanController(request.get_json() or {}).plan_case_add()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'addedCount': added_count})
+
+
+@api.route('/plan/case/list', methods=['GET'])
+@login_required
+@permission_required('plan_case:list')
+def plan_case_list():
+    return ApiResponse.build_success(20000, data=PlanController(request.args).plan_case_list())
+
+
+@api.route('/plan/case/execute', methods=['POST'])
+@login_required
+@permission_required('plan_case:execute')
+def plan_case_execute():
+    update_id, err_msg = PlanController(request.get_json() or {}).plan_case_execute()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': update_id})
+
+
+@api.route('/plan/progress', methods=['GET'])
+@login_required
+@permission_required('plan:progress')
+def plan_progress():
+    ret, err_msg = PlanController(request.args).progress()
+    if err_msg:
+        return ApiResponse.build_failure(40011, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/automation/case/run', methods=['POST'])
+@login_required
+@permission_required('automation:run')
+def automation_case_run():
+    controller = AutomationController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.case_run()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/plan/run', methods=['POST'])
+@login_required
+@permission_required('automation:run')
+def automation_plan_run():
+    controller = AutomationController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.plan_run()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/list', methods=['GET'])
+@login_required
+@permission_required('automation:list')
+def automation_execution_list():
+    controller = AutomationController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.execution_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/detail', methods=['GET'])
+@login_required
+@permission_required('automation:detail')
+def automation_execution_detail():
+    controller = AutomationController(request.args)
+    try:
+        ret, err_msg = controller.execution_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/case/list', methods=['GET'])
+@login_required
+@permission_required('automation:detail')
+def automation_execution_case_list():
+    controller = AutomationController(request.args)
+    try:
+        ret, err_msg = controller.execution_case_list()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/poll', methods=['POST'])
+@login_required
+@permission_required('automation:detail')
+def automation_execution_poll():
+    from ..api.service.jenkinsPollService import JenkinsPollService
+    from ..api.dao.automationDao import AutomationDao
+    
+    req_data = request.get_json() or {}
+    execution_id = req_data.get('executionId') or req_data.get('execution_id')
+    
+    from ..api.controller.baseCrudController import BaseCrudController
+    controller = BaseCrudController(req_data)
+    
+    try:
+        if execution_id:
+            success, msg = JenkinsPollService.poll_jenkins_build_status(controller.session, execution_id)
+            if not success:
+                return ApiResponse.build_failure(40012, msg=msg)
+            execution = AutomationDao.get_execution_by_id(controller.session, execution_id)
+            return ApiResponse.build_success(20000, data=execution.to_dict() if execution else {'id': execution_id, 'message': msg})
+        else:
+            JenkinsPollService.poll_all_pending_executions(controller.session)
+            return ApiResponse.build_success(20000, data={'message': '轮询完成'})
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/case/pull', methods=['GET'])
+def automation_execution_case_pull():
+    req_data = dict(request.args)
+    req_data['_callback_token'] = request.headers.get('X-CALLBACK-TOKEN', '')
+    controller = AutomationController(req_data)
+    try:
+        ret, err_msg = controller.execution_case_pull()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/queued', methods=['POST'])
+def automation_execution_queued():
+    req_data = request.get_json() or {}
+    req_data['_callback_secret'] = request.headers.get('X-CALLBACK-SECRET', '')
+    controller = AutomationController(req_data)
+    try:
+        ok, err_msg = controller.validate_callback_secret()
+        if not ok:
+            return ApiResponse.build_failure(40004, msg=err_msg)
+        update_id, err_msg = controller.execution_queued()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/start', methods=['POST'])
+def automation_execution_start():
+    req_data = request.get_json() or {}
+    req_data['_callback_secret'] = request.headers.get('X-CALLBACK-SECRET', '')
+    controller = AutomationController(req_data)
+    try:
+        ok, err_msg = controller.validate_callback_secret()
+        if not ok:
+            return ApiResponse.build_failure(40004, msg=err_msg)
+        update_id, err_msg = controller.execution_start()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/case/result', methods=['POST'])
+def automation_execution_case_result():
+    req_data = request.get_json() or {}
+    req_data['_callback_secret'] = request.headers.get('X-CALLBACK-SECRET', '')
+    controller = AutomationController(req_data)
+    try:
+        ok, err_msg = controller.validate_callback_secret()
+        if not ok:
+            return ApiResponse.build_failure(40004, msg=err_msg)
+        update_id, err_msg = controller.execution_case_result()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/finish', methods=['POST'])
+def automation_execution_finish():
+    req_data = request.get_json() or {}
+    req_data['_callback_secret'] = request.headers.get('X-CALLBACK-SECRET', '')
+    controller = AutomationController(req_data)
+    try:
+        ok, err_msg = controller.validate_callback_secret()
+        if not ok:
+            return ApiResponse.build_failure(40004, msg=err_msg)
+        update_id, err_msg = controller.execution_finish()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/automation/execution/abort', methods=['POST'])
+def automation_execution_abort():
+    req_data = request.get_json() or {}
+    req_data['_callback_secret'] = request.headers.get('X-CALLBACK-SECRET', '')
+    controller = AutomationController(req_data)
+    try:
+        ok, err_msg = controller.validate_callback_secret()
+        if not ok:
+            return ApiResponse.build_failure(40004, msg=err_msg)
+        update_id, err_msg = controller.execution_abort()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+# =========================
+# 测试 Skills 与业务规则接口
+# =========================
+
+
+@api.route('/skill/create', methods=['POST'])
+@login_required
+@permission_required('skill:create')
+def skill_create():
+    controller = SkillController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.skill_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/skill/update', methods=['POST'])
+@login_required
+@permission_required('skill:update')
+def skill_update():
+    controller = SkillController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.skill_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/skill/delete', methods=['POST'])
+@login_required
+@permission_required('skill:delete')
+def skill_delete():
+    controller = SkillController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.skill_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/skill/detail', methods=['GET'])
+@login_required
+@permission_required('skill:detail')
+def skill_detail():
+    controller = SkillController(request.args)
+    try:
+        ret, err_msg = controller.skill_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/skill/list', methods=['GET'])
+@login_required
+@permission_required('skill:list')
+def skill_list():
+    controller = SkillController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.skill_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/skill-rule/list', methods=['GET'])
+@login_required
+@permission_required('skill:list')
+def skill_rule_list():
+    controller = SkillController(request.args)
+    try:
+        ret, err_msg = controller.skill_rule_list()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/business-rule/create', methods=['POST'])
+@login_required
+@permission_required('business-rule:create')
+def business_rule_create():
+    controller = SkillController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.business_rule_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/business-rule/update', methods=['POST'])
+@login_required
+@permission_required('business-rule:update')
+def business_rule_update():
+    controller = SkillController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.business_rule_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/business-rule/delete', methods=['POST'])
+@login_required
+@permission_required('business-rule:delete')
+def business_rule_delete():
+    controller = SkillController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.business_rule_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/business-rule/detail', methods=['GET'])
+@login_required
+@permission_required('business-rule:detail')
+def business_rule_detail():
+    controller = SkillController(request.args)
+    try:
+        ret, err_msg = controller.business_rule_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/business-rule/list', methods=['GET'])
+@login_required
+@permission_required('business-rule:list')
+def business_rule_list():
+    controller = SkillController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.business_rule_list())
+    finally:
+        controller.close_session()
+
+
+# =========================
+# 报告接口
+# =========================
+
+
+@api.route('/report/list', methods=['GET'])
+@login_required
+@permission_required('report:list')
+def report_list():
+    """分页查询测试报告列表。"""
+    controller = ReportController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.report_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/report/detail', methods=['GET'])
+@login_required
+@permission_required('report:detail')
+def report_detail():
+    controller = ReportController(request.args)
+    try:
+        ret, err_msg = controller.report_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/report/generate', methods=['POST'])
+@login_required
+@permission_required('report:generate')
+def report_generate():
+    controller = ReportController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.report_generate()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+# =========================
+# 造数器与造数任务接口
+# =========================
+
+
+@api.route('/data/builder/list', methods=['GET'])
+@login_required
+@permission_required('data_builder:list')
+def data_builder_list():
+    """分页查询造数器列表。"""
+    return ApiResponse.build_success(20000, data=DataBuilderController(request.args).builder_list())
+
+
+@api.route('/data/builder/detail', methods=['GET'])
+@login_required
+@permission_required('data_builder:detail')
+def data_builder_detail():
+    ret, err_msg = DataBuilderController(request.args).builder_detail()
+    if err_msg:
+        return ApiResponse.build_failure(40011, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/data/builder/create', methods=['POST'])
+@login_required
+@permission_required('data_builder:create')
+def data_builder_create():
+    create_id, err_msg = DataBuilderController(request.get_json() or {}).builder_create()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': create_id})
+
+
+@api.route('/data/builder/update', methods=['POST'])
+@login_required
+@permission_required('data_builder:update')
+def data_builder_update():
+    update_id, err_msg = DataBuilderController(request.get_json() or {}).builder_update()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': update_id})
+
+
+@api.route('/data/builder/delete', methods=['POST'])
+@login_required
+@permission_required('data_builder:delete')
+def data_builder_delete():
+    delete_id, err_msg = DataBuilderController(request.get_json() or {}).builder_delete()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data={'id': delete_id})
+
+
+@api.route('/data/builder/execute', methods=['POST'])
+@login_required
+@permission_required('data_builder:execute')
+def data_builder_execute():
+    ret, err_msg = DataBuilderController(request.get_json() or {}).builder_execute()
+    if err_msg:
+        return ApiResponse.build_failure(40009, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/data/task/status', methods=['GET'])
+@login_required
+@permission_required('data_task:status')
+def data_task_status():
+    ret, err_msg = DataBuilderController(request.args).task_status()
+    if err_msg:
+        return ApiResponse.build_failure(40011, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
+
+
+@api.route('/role/list', methods=['GET'])
+@login_required
+@permission_required('role:list')
+def role_list():
+    controller = RbacController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.role_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/page/list', methods=['GET'])
+@login_required
+@permission_required('role:list')
+def role_page_list():
+    controller = RbacController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.role_page_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/detail', methods=['GET'])
+@login_required
+@permission_required('role:detail')
+def role_detail():
+    controller = RbacController(request.args)
+    try:
+        ret, err_msg = controller.role_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/create', methods=['POST'])
+@login_required
+@permission_required('role:create')
+def role_create():
+    controller = RbacController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.role_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/update', methods=['POST'])
+@login_required
+@permission_required('role:update')
+def role_update():
+    controller = RbacController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.role_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/delete', methods=['POST'])
+@login_required
+@permission_required('role:delete')
+def role_delete():
+    controller = RbacController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.role_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/permission/list', methods=['GET'])
+@login_required
+@permission_required('permission:list')
+def permission_list():
+    controller = RbacController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.permission_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/permission/detail', methods=['GET'])
+@login_required
+@permission_required('permission:detail')
+def permission_detail():
+    controller = RbacController(request.args)
+    try:
+        ret, err_msg = controller.permission_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/permission/create', methods=['POST'])
+@login_required
+@permission_required('permission:create')
+def permission_create():
+    controller = RbacController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.permission_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/permission/update', methods=['POST'])
+@login_required
+@permission_required('permission:update')
+def permission_update():
+    controller = RbacController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.permission_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/permission/delete', methods=['POST'])
+@login_required
+@permission_required('permission:delete')
+def permission_delete():
+    controller = RbacController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.permission_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/menu/tree', methods=['GET'])
+@login_required
+@permission_required('menu:list')
+def menu_tree():
+    controller = RbacController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.menu_tree())
+    finally:
+        controller.close_session()
+
+
+@api.route('/menu/current/list', methods=['GET'])
+@login_required
+def current_menu_list():
+    controller = RbacController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.current_menu_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/menu/tree', methods=['GET'])
+@login_required
+@permission_required('role_menu:list')
+def role_menu_tree():
+    controller = RbacController(request.args)
+    try:
+        ret, err_msg = controller.role_menu_tree()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/menu/detail', methods=['GET'])
+@login_required
+@permission_required('menu:detail')
+def menu_detail():
+    controller = RbacController(request.args)
+    try:
+        ret, err_msg = controller.menu_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/menu/create', methods=['POST'])
+@login_required
+@permission_required('menu:create')
+def menu_create():
+    controller = RbacController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.menu_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/menu/update', methods=['POST'])
+@login_required
+@permission_required('menu:update')
+def menu_update():
+    controller = RbacController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.menu_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/menu/delete', methods=['POST'])
+@login_required
+@permission_required('menu:delete')
+def menu_delete():
+    controller = RbacController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.menu_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/permission/list', methods=['GET'])
+@login_required
+@permission_required('role_permission:list')
+def role_permission_list():
+    controller = RbacController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.role_permission_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/permission/assign', methods=['POST'])
+@login_required
+@permission_required('role_permission:assign')
+def role_permission_assign():
+    controller = RbacController(request.get_json() or {})
+    try:
+        role_id, err_msg = controller.role_permission_assign()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': role_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/menu/list', methods=['GET'])
+@login_required
+@permission_required('role_menu:list')
+def role_menu_list():
+    controller = RbacController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.role_menu_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/role/menu/assign', methods=['POST'])
+@login_required
+@permission_required('role_menu:assign')
+def role_menu_assign():
+    controller = RbacController(request.get_json() or {})
+    try:
+        role_id, err_msg = controller.role_menu_assign()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': role_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/user/list', methods=['GET'])
+@login_required
+@permission_required('user:list')
+def user_list():
+    controller = UserController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.user_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/user/detail', methods=['GET'])
+@login_required
+@permission_required('user:detail')
+def user_detail():
+    controller = UserController(request.args)
+    try:
+        ret, err_msg = controller.user_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/user/create', methods=['POST'])
+@login_required
+@permission_required('user:create')
+def user_create():
+    controller = UserController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.user_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/user/update', methods=['POST'])
+@login_required
+@permission_required('user:update')
+def user_update():
+    controller = UserController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.user_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/user/delete', methods=['POST'])
+@login_required
+@permission_required('user:delete')
+def user_delete():
+    controller = UserController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.user_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/user/role/list', methods=['GET'])
+@login_required
+@permission_required('user_role:list')
+def user_role_list():
+    controller = UserController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.user_role_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/user/role/assign', methods=['POST'])
+@login_required
+@permission_required('user_role:assign')
+def user_role_assign():
+    controller = UserController(request.get_json() or {})
+    try:
+        user_id, err_msg = controller.user_role_assign()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': user_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/auth/register', methods=['POST'])
+def auth_register():
+    controller = UserController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.register()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/auth/login', methods=['POST'])
+def auth_login():
+    controller = UserController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.login()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    except OperationalError:
+        return ApiResponse.build_failure(40011, msg='数据库连接失败，请稍后重试！')
+    finally:
+        controller.close_session()
+
+
+@api.route('/auth/refresh', methods=['POST'])
+def auth_refresh():
+    from .utils.authMiddleware import validate_refresh_token, create_token, create_refresh_token, revoke_refresh_token, get_current_user_id
+    
+    req_json = request.get_json() or {}
+    refresh_token = req_json.get('refreshToken') or req_json.get('refresh_token')
+    access_token = req_json.get('accessToken') or req_json.get('access_token')
+    
+    if refresh_token:
+        user_id = validate_refresh_token(refresh_token)
+        if user_id:
+            revoke_refresh_token(refresh_token)
+            new_token, expire_seconds = create_token(user_id)
+            new_refresh_token, refresh_expire_seconds = create_refresh_token(user_id)
+            return ApiResponse.build_success(20000, data={
+                'token': new_token,
+                'token_type': 'Bearer',
+                'expires_in': expire_seconds,
+                'refresh_token': new_refresh_token,
+                'refresh_expires_in': refresh_expire_seconds
+            })
+        return ApiResponse.build_failure(40001, msg='refresh_token无效或已过期')
+    
+    elif access_token:
+        user_id = get_current_user_id(access_token)
+        if user_id:
+            new_token, expire_seconds = create_token(user_id)
+            return ApiResponse.build_success(20000, data={
+                'token': new_token,
+                'token_type': 'Bearer',
+                'expires_in': expire_seconds
+            })
+        return ApiResponse.build_failure(451, msg='access_token无效或已过期')
+    
+    return ApiResponse.build_failure(40003, msg='请提供refresh_token或access_token')
+
+
+@api.route('/bug/list', methods=['GET'])
+@login_required
+@permission_required('bug:list')
+def bug_list():
+    controller = BugController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.bug_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/detail', methods=['GET'])
+@login_required
+@permission_required('bug:detail')
+def bug_detail():
+    controller = BugController(request.args)
+    try:
+        ret, err_msg = controller.bug_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/create', methods=['POST'])
+@login_required
+@permission_required('bug:create')
+def bug_create():
+    controller = BugController(request.get_json() or {})
+    try:
+        bug_id, err_msg = controller.bug_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': bug_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/update', methods=['POST'])
+@login_required
+@permission_required('bug:update')
+def bug_update():
+    controller = BugController(request.get_json() or {})
+    try:
+        bug_id, err_msg = controller.bug_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': bug_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/delete', methods=['POST'])
+@login_required
+@permission_required('bug:delete')
+def bug_delete():
+    controller = BugController(request.get_json() or {})
+    try:
+        bug_id, err_msg = controller.bug_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': bug_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/history/add', methods=['POST'])
+@login_required
+@permission_required('bug:update')
+def bug_history_add():
+    controller = BugController(request.get_json() or {})
+    try:
+        success, err_msg = controller.bug_history_add()
+        if err_msg:
+            return ApiResponse.build_failure(40015, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'success': success})
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/comment/add', methods=['POST'])
+@login_required
+@permission_required('bug:comment')
+def bug_comment_add():
+    controller = BugController(request.get_json() or {})
+    try:
+        comment_id, err_msg = controller.bug_comment_add()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': comment_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/stats', methods=['GET'])
+@login_required
+@permission_required('bug:stats')
+def bug_stats():
+    controller = BugController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.bug_stats())
+    finally:
+        controller.close_session()
+
+
+@api.route('/bug/upload', methods=['POST'])
+@login_required
+@permission_required('bug:create')
+def bug_upload():
+    controller = BugUploadController(request)
+    try:
+        file_url, err_msg = controller.bug_upload()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'url': file_url})
+    finally:
+        controller.close_session()
+
+
+# =========================
+# 文档源接口 (PRD文档/飞书链接)
+# =========================
+
+@api.route('/document/list', methods=['GET'])
+@login_required
+@permission_required('document:list')
+def document_list():
+    controller = DocumentSourceController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.document_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/detail', methods=['GET'])
+@login_required
+@permission_required('document:detail')
+def document_detail():
+    controller = DocumentSourceController(request.args)
+    try:
+        ret, err_msg = controller.document_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/create', methods=['POST'])
+@login_required
+@permission_required('document:create')
+def document_create():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        create_id, err_msg = controller.document_create()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/update', methods=['POST'])
+@login_required
+@permission_required('document:update')
+def document_update():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        update_id, err_msg = controller.document_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': update_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/delete', methods=['POST'])
+@login_required
+@permission_required('document:delete')
+def document_delete():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.document_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/refresh', methods=['POST'])
+@login_required
+@permission_required('document:update')
+def document_refresh():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        success, err_msg = controller.document_refresh()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'success': success})
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/generate-cases', methods=['POST'])
+@login_required
+@permission_required('document:generate')
+def document_generate_cases():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_generate_cases()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/match-modules', methods=['POST'])
+@login_required
+@permission_required('document:generate')
+def document_match_modules():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret = controller.document_match_modules()
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/import-cases', methods=['POST'])
+@login_required
+@permission_required('document:import')
+def document_import_cases():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        success_count, err_msg = controller.document_import_cases()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'successCount': success_count})
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/batch-create-modules', methods=['POST'])
+@login_required
+@permission_required('module:create')
+def document_batch_create_modules():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_batch_create_modules()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/upload', methods=['POST'])
+@login_required
+@permission_required('document:create')
+def document_upload():
+    controller = DocumentSourceController(request)
+    try:
+        ret, err_msg = controller.document_upload()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+# =========================
+# 智能 Mock 服务接口
+# =========================
+
+@api.route('/mock/document/import', methods=['POST'])
+@login_required
+@permission_required('mock:document:import')
+def mock_document_import():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_import()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/document/upload-import', methods=['POST'])
+@login_required
+@permission_required('mock:document:import')
+def mock_document_upload_import():
+    controller = MockController(request)
+    try:
+        ret, err_msg = controller.document_upload_import()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/document/url-import', methods=['POST'])
+@login_required
+@permission_required('mock:document:import')
+def mock_document_url_import():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_url_import()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/document/list', methods=['GET'])
+@login_required
+@permission_required('mock:document:list')
+def mock_document_list():
+    controller = MockController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.document_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/interface/list', methods=['GET'])
+@login_required
+@permission_required('mock:interface:list')
+def mock_interface_list():
+    controller = MockController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.interface_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/interface/detail', methods=['GET'])
+@login_required
+@permission_required('mock:interface:detail')
+def mock_interface_detail():
+    controller = MockController(request.args)
+    try:
+        ret, err_msg = controller.interface_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/interface/update', methods=['POST'])
+@login_required
+@permission_required('mock:interface:update')
+def mock_interface_update():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.interface_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': ret})
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/interface/enable', methods=['POST'])
+@login_required
+@permission_required('mock:interface:enable')
+def mock_interface_enable():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.interface_enable()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': ret})
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/interface/disable', methods=['POST'])
+@login_required
+@permission_required('mock:interface:disable')
+def mock_interface_disable():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.interface_disable()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': ret})
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/scene/list', methods=['GET'])
+@login_required
+@permission_required('mock:scene:list')
+def mock_scene_list():
+    controller = MockController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.scene_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/scene/update', methods=['POST'])
+@login_required
+@permission_required('mock:scene:update')
+def mock_scene_update():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.scene_update()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': ret})
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/scene/enable', methods=['POST'])
+@login_required
+@permission_required('mock:scene:enable')
+def mock_scene_enable():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.scene_enable()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': ret})
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/scene/disable', methods=['POST'])
+@login_required
+@permission_required('mock:scene:disable')
+def mock_scene_disable():
+    controller = MockController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.scene_disable()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': ret})
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/log/list', methods=['GET'])
+@login_required
+@permission_required('mock:log:list')
+def mock_log_list():
+    controller = MockController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.log_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/parse-issue/list', methods=['GET'])
+@login_required
+@permission_required('mock:parse-issue:list')
+def mock_parse_issue_list():
+    controller = MockController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.parse_issue_list())
+    finally:
+        controller.close_session()
+
+
+@api.route('/mock/runtime/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+@login_required
+@permission_required('mock:runtime:access')
+def mock_runtime(path):
+    body = request.get_json(silent=True) or {}
+    headers = dict(request.headers)
+    query = request.args.to_dict(flat=True)
+    controller = MockController({})
+    try:
+        response, err_msg = controller.runtime(request.method, path, query, body, headers)
+        if err_msg:
+            logger.warning(f'mock_runtime提示：{err_msg}, path={path}, query={query}')
+        return response
+    except Exception as e:
+        logger.error(f'mock_runtime异常：{str(e)}, path={path}, query={query}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40008, msg=str(e))
+    finally:
+        controller.close_session()
+

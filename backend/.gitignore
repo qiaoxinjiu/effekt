@@ -1,0 +1,13 @@
+/logs/
+/venv/
+.idea/
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+.understand-anything/
+.plan/
+attachment/interface_address/
+*.docx

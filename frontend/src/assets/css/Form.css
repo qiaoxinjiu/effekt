@@ -1,0 +1,54 @@
+#backgroud {
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  /*margin: auto;*/
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  background-repeat: no-repeat;
+  background-size: cover;
+
+  background-image: url("https://t4.chei.com.cn/account/images/account/bg.jpg");
+  /*background-image: url("../../src/assets/loginbackgroud.png");*/
+}
+.model {
+  padding: 50px 0;
+  background: #fff;
+  color: #333;
+  border-radius: 3px;
+  border-color: rgba(250, 255, 251, .8);
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, .1), 0 0 8px rgba(140, 141, 140, .6);
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  margin: auto;
+  outline: 0;
+  width: 500px;
+  height: max-content;
+  text-align: center;
+}
+.location {
+  margin-left: 178%;
+  margin-top: 20%;
+  color: #666;
+  border-left: 0 solid #ddd;
+  width: 500px;
+  height: 70px;
+}
+.enter-btn {
+  border: 1px solid #248992;
+  background: #2eafbb;
+  /*height: 50px;*/
+  /*line-height: 50px;*/
+  /*border-radius: 4px;*/
+  margin-top: 2%;
+  font-size: 18px;
+  color: #fff;
+  float: left;
+  width: 320px;
+  outline: 0;
+}
