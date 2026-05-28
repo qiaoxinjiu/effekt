@@ -1,8 +1,19 @@
 # Effekt 全栈新人上手指南
 
+使用说明：
+
+
+
+
+
+
+
+
+技术文档：
+
 **仓库**
-- 后端：`D:\zhyy\effekt-interface`
-- 前端：`D:\zhyy\effekt-interface-frontend`
+- 后端：`\effekt-interface`
+- 前端：`\effekt-interface-frontend`
 
 ---
 
@@ -31,7 +42,7 @@
 ```javascript
 proxyTable: {
   '/it/api': {
-    target: 'http://192.168.11.46:5010',  // 按环境改成本机 127.0.0.1:5010
+    target: 'http://127.0.0.1:5010',  // 按环境改成本机 127.0.0.1:5010
     changeOrigin: true
   }
 }
@@ -41,7 +52,7 @@ proxyTable: {
 
 **后端**
 ```bash
-cd D:\zhyy\effekt-interface
+cd \effekt-interface
 pip3 install -r requirements.txt
 # 配置 .env / const.py 中的数据库等
 gunicorn --config=gunicorn.conf.py manage:app
@@ -49,7 +60,7 @@ gunicorn --config=gunicorn.conf.py manage:app
 
 **前端**
 ```bash
-cd D:\zhyy\effekt-interface-frontend
+cd \effekt-interface-frontend
 npm install
 npm run dev   # http://localhost:8081
 ```
@@ -287,5 +298,8 @@ Token 放在请求头 `accessToken`（与后端 `authMiddleware` 一致）。
 3. **保存文档** — 可将本文保存为 `effekt-interface/docs/ONBOARDING.md`（或 monorepo 根目录），提交给团队。
 
 4. **安全提醒** — `const.py` 含数据库等敏感配置，勿提交到公开仓库；前端代理 IP 按团队环境维护。
+
+
+使用说明：
 
 
